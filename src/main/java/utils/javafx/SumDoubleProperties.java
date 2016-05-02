@@ -1,8 +1,8 @@
 package utils.javafx;
 
 import javafx.beans.binding.DoubleBinding;
-import javafx.beans.binding.DoubleExpression;
-import javafx.beans.value.ChangeListener;
+import javafx.beans.binding.NumberExpression;
+import javafx.beans.value.ObservableNumberValue;
 import javafx.collections.ListChangeListener;
 import javafx.collections.ObservableList;
 
@@ -15,49 +15,32 @@ import java.util.function.Function;
  */
 public class SumDoubleProperties<E> extends DoubleBinding {
 
-    Map<E, DoubleExpression> itemsToSum = new HashMap<>();
-    private double sum = 0.;
+    Map<E, NumberExpression> itemsToSum = new HashMap<>();
 
-    private final ChangeListener<Number> VALUE_CHANGE_LISTENER = (observable, oldValue, newValue) -> {
-        sum += newValue.doubleValue() - oldValue.doubleValue();
-    };
-
-    public SumDoubleProperties(ObservableList<E> items, Function<E, DoubleExpression> extractor) {
-        items.forEach(o -> itemsToSum.put(o, addNewItem(extractor.apply(o))));
-        items.addListener((ListChangeListener<? super E>) observable -> {
-            while(observable.next()) {
-                observable.getRemoved().forEach(o -> removeItem(itemsToSum.remove(o)));
-                observable.getAddedSubList().forEach(o -> itemsToSum.put(o, addNewItem(extractor.apply(o))));
-//                if (observable.wasRemoved()) {
-//                    recalculate();
-//                }
+    public SumDoubleProperties(ObservableList<E> items, Function<E, NumberExpression> extractor) {
+        items.forEach(o -> itemsToSum.put(o, addNew(extractor.apply(o))));
+        items.addListener((ListChangeListener<? super E>) change -> {
+            while(change.next()) {
+                change.getRemoved().forEach(o -> remove(itemsToSum.remove(o)));
+                change.getAddedSubList().forEach(o -> itemsToSum.put(o, addNew(extractor.apply(o))));
+                if(change.wasAdded() || change.wasRemoved() || change.wasUpdated()) {
+                    invalidate();
+                }
             }
         });
     }
 
-    private DoubleExpression addNewItem(DoubleExpression e) {
-        e.addListener(VALUE_CHANGE_LISTENER);
-        bind(e);
-        sum += e.get();
-        invalidate();
-        return e;
+    private NumberExpression addNew(NumberExpression expr) {
+        bind(expr);
+        return expr;
     }
 
-    private void removeItem(DoubleExpression e) {
-        unbind(e);
-        e.removeListener(VALUE_CHANGE_LISTENER);
-        sum -= e.get();
-        invalidate();
-    }
-
-
-    private void recalculate() {
-        sum = itemsToSum.values().stream().mapToDouble(DoubleExpression::doubleValue).sum();
-        invalidate();
+    private void remove(NumberExpression expr) {
+        unbind(expr);
     }
 
     @Override
     protected double computeValue() {
-        return sum;
+        return itemsToSum.values().stream().mapToDouble(ObservableNumberValue::doubleValue).sum();
     }
 }
