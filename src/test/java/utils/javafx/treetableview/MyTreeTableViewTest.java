@@ -5,6 +5,8 @@ import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.beans.Observable;
 import javafx.beans.binding.Bindings;
+import javafx.beans.binding.DoubleExpression;
+import javafx.beans.binding.NumberExpression;
 import javafx.beans.binding.StringExpression;
 import javafx.beans.property.*;
 import javafx.collections.FXCollections;
@@ -21,10 +23,12 @@ import javafx.stage.Stage;
 import javafx.util.Callback;
 import org.pmw.tinylog.Logger;
 import org.slf4j.LoggerFactory;
+import utils.javafx.SumDoubleProperties;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
@@ -47,7 +51,7 @@ public class MyTreeTableViewTest extends Application {
     private ObservableList<Data> getContent() {
         ObservableList<Data> list = FXCollections.observableArrayList(param -> new Observable[] {param.basketProperty(), param.sideProperty(), param.priceProperty()});
 
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 1000; i++) {
             list.add(new Data("bean " + i, rand.nextBoolean() ? OrderSide.BUY : OrderSide.SELL, 1000. + rand.nextInt(101), rand.nextBoolean() ? "EU" : "US"));
         }
         return list;
@@ -140,8 +144,12 @@ public class MyTreeTableViewTest extends Application {
         target.add(itTgt, element);
     }
 
+    Timer timer = new Timer();
 
-    Map<Data, TreeItem<? extends AbstractData>> nodes = new HashMap<>();
+    @Override
+    public void stop() throws Exception {
+        timer.cancel();
+    }
 
     @Override
     public void start(Stage primaryStage) throws Exception {
@@ -175,12 +183,17 @@ public class MyTreeTableViewTest extends Application {
         ObservableList<Data> dataItems = getContent();
         FilteredList<Data> items = dataItems.sorted(Comparator.comparing(Data::getPrice)).filtered(data -> true);
 
-        new Timer().scheduleAtFixedRate(new TimerTask() {
+        timer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
                 if(!dataItems.isEmpty()) {
                     int ind = rand.nextInt(dataItems.size());
+                    long ts = System.nanoTime();
                     Platform.runLater(() -> {
+                        long now = System.nanoTime();
+                        if(now - ts > 10000000) {
+                            Logger.info("Lag >10ms: " + (now - ts) / 1000000 + "ms");
+                        }
                         dataItems.get(ind).setPrice(dataItems.get(ind).getPrice() + rand.nextInt(51) - 25);
                     });
                 }
@@ -188,12 +201,11 @@ public class MyTreeTableViewTest extends Application {
             }
         }, 50, 50);
 
-        Callback<AbstractData, ObservableList<AbstractData>> pathResolver = data -> FXCollections.observableArrayList(new DataGroup(((Data)data).getBasket()), new DataGroup(((Data)data).getSide().name()));
-        TreeTableViewHelper<AbstractData> helper3 = new TreeTableViewHelper<>(treeTableView, new DataGroup("All"), items, TreeNode::new, pathResolver);
+        Callback<AbstractData, List<AbstractData>> pathResolver = data -> FXCollections.observableArrayList(new DataGroup(((Data)data).getBasket()), new DataGroup(((Data)data).getSide().name()));
+        BiConsumer<AbstractData, TreeNode<AbstractData>> nodeConsumer = (abstractData, abstractDataTreeNode) -> Bindings.bindContent(((DataGroup) abstractData).getChildren(), abstractDataTreeNode.getChildren());
+        TreeTableViewHelper<AbstractData> helper3 = new TreeTableViewHelper<>(treeTableView, new DataGroup("All"), items, TreeNode::new, pathResolver, nodeConsumer);
 
         treeTableView.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
-
-        LoggerFactory.getLogger(getClass()).info("Cocuou");
 
         HBox buttons = new HBox();
         TextField filter = new TextField();
@@ -254,8 +266,9 @@ public class MyTreeTableViewTest extends Application {
         buttons.getChildren().add(buttonSort);
         primaryStage.setScene(scene);
         primaryStage.show();
-
     }
+
+
 
     public static class AbstractData {
         public StringExpression nameProperty() {
@@ -266,7 +279,7 @@ public class MyTreeTableViewTest extends Application {
             return null;
         }
 
-        public DoubleProperty priceProperty() {
+        public DoubleExpression priceProperty() {
             return null;
         }
 
@@ -283,12 +296,26 @@ public class MyTreeTableViewTest extends Application {
     public static class DataGroup extends AbstractData {
         private final String name;
 
+        private final ObservableList<TreeItem<AbstractData>> list = FXCollections.observableArrayList();
+        private final NumberExpression listSize = Bindings.size(list);
+        private final DoubleExpression price = new SumDoubleProperties<>(list, abstractDataTreeItem -> abstractDataTreeItem.getValue().priceProperty());//.divide(Bindings.size(list));
+        private final DoubleExpression avgPrice = price.divide(listSize);
+
         public DataGroup(String name) {
             this.name = name;
         }
 
         public StringExpression nameProperty() {
             return Bindings.createStringBinding(() -> name);
+        }
+
+        public ObservableList<TreeItem<AbstractData>> getChildren() {
+            return list;
+        }
+
+        @Override
+        public DoubleExpression priceProperty() {
+            return avgPrice;
         }
 
         @Override
@@ -350,7 +377,7 @@ public class MyTreeTableViewTest extends Application {
             return price.get();
         }
 
-        public DoubleProperty priceProperty() {
+        public DoubleExpression priceProperty() {
             return price;
         }
 

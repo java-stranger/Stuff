@@ -1,14 +1,18 @@
 package utils.javafx.treetableview;
 
 import com.sun.javafx.scene.control.behavior.TreeTableCellBehavior;
-import javafx.collections.*;
+import javafx.collections.FXCollections;
+import javafx.collections.ListChangeListener;
+import javafx.collections.ObservableList;
 import javafx.scene.control.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collection;
 import java.util.Iterator;
 
 /**
+ * An alternative {@code TreeTableViewSelectionModel} for {@code TreeTableView}
  * Created by denis.kubasov on 29/04/2016.
  */
 public class SelectionModel<E> extends TreeTableView.TreeTableViewSelectionModel<E> {
@@ -24,10 +28,9 @@ public class SelectionModel<E> extends TreeTableView.TreeTableViewSelectionModel
      */
 
     ObservableList<TreeTablePosition<E, ?>> selectedCells = FXCollections.observableArrayList();
+    ObservableList<Integer> selectedIndices = FXCollections.observableArrayList();
 
-    ObservableSet<TreeItem<E>> selected = FXCollections.observableSet();
-    int focused = -1;
-
+    ObservableList<TreeItem<E>> selected = FXCollections.observableArrayList();
 
     int getRow(TreeItem<E> item) {
         return getTreeTableView().getRow(item);
@@ -35,107 +38,41 @@ public class SelectionModel<E> extends TreeTableView.TreeTableViewSelectionModel
 
     public SelectionModel(TreeTableView<E> treeTableView) {
         super(treeTableView);
-        selected.addListener((SetChangeListener<? super TreeItem<E>>) change -> {
-            if (change.wasRemoved()) {
-                Iterator<TreeTablePosition<E, ?>> it = selectedCells.iterator();
-                int row = getRow(change.getElementRemoved());
-                while (it.hasNext()) {
-                    TreeTablePosition<E, ?> cell = it.next();
-                    if (cell.getRow() == row) {
-                        it.remove();
+        selected.addListener((ListChangeListener<? super TreeItem<E>>) change -> {
+            while(change.next()) {
+                change.getRemoved().forEach(o -> {
+                    Iterator<TreeTablePosition<E, ?>> it = selectedCells.iterator();
+                    int row = getRow(o);
+                    while (it.hasNext()) {
+                        TreeTablePosition<E, ?> cell = it.next();
+                        if (cell.getRow() == row) {
+                            it.remove();
+                        }
                     }
-                }
-            }
-            if (change.wasAdded()) {
-                int row = getRow(change.getElementRemoved());
-                treeTableView.getColumns().forEach(eTreeTableColumn -> {
-                    selectedCells.add(new TreeTablePosition<>(treeTableView, row, eTreeTableColumn));
+                    selectedIndices.removeAll(row);
+                });
+                change.getAddedSubList().forEach(o -> {
+                    int row = getRow(o);
+                    treeTableView.getColumns().forEach(eTreeTableColumn -> {
+                        selectedCells.add(new TreeTablePosition<>(treeTableView, row, eTreeTableColumn));
+                    });
+                    selectedIndices.addAll(row);
                 });
             }
-            logger.info("Selection: " + selected);
+//            logger.info("Selection: " + selected);
         });
+    }
 
-//        treeTableView.setFocusModel(new TreeTableView.TreeTableViewFocusModel<E>(treeTableView){
-//
-//            TreeItem<E> focused = null;
-//
-//            @Override
-//            protected int getItemCount() {
-//                return focused == null ? 0 : 1;
-//            }
-//
-//            private void focus(TreeItem<E> row) {
-//                focused = row;
-//            }
-//
-//            @Override
-//            public void focus(int row, TreeTableColumn<E, ?> column) {
-//                super.focus(row, column);
-//                focus(row);
-//            }
-//
-//            @Override
-//            public void focus(TreeTablePosition<E, ?> pos) {
-//                super.focus(pos);
-//                focus(super.getModelItem(pos.getRow()));
-//            }
-//
-//            @Override
-//            public boolean isFocused(int row, TreeTableColumn<E, ?> column) {
-//                return isFocused(row);
-//            }
-//
-//            @Override
-//            public void focus(int index) {
-//                super.focus(index);
-//                focus(super.getModelItem(index));
-//            }
-//
-//            @Override
-//            public void focusAboveCell() {
-//                throw new UnsupportedOperationException();
-//            }
-//
-//            @Override
-//            public void focusBelowCell() {
-//                throw new UnsupportedOperationException();
-//            }
-//
-//            @Override
-//            public void focusLeftCell() {
-//                throw new UnsupportedOperationException();
-//            }
-//
-//            @Override
-//            public void focusRightCell() {
-//                throw new UnsupportedOperationException();
-//            }
-//
-//            @Override
-//            public void focusPrevious() {
-//                throw new UnsupportedOperationException();
-//            }
-//
-//            @Override
-//            public void focusNext() {
-//                throw new UnsupportedOperationException();
-//            }
-//
-//            @Override
-//            public boolean isFocused(int index) {
-//                TreeItem<E> node = super.getModelItem(index);
-//                return node != null && focused == node;
-//            }
-//        });
-        treeTableView.getFocusModel().focusedCellProperty().addListener((observable, oldValue, newValue) -> {
-            logger.info("Focused cell changed: " + newValue);
-        });
+
+    private int getRowCount() {
+        return getTreeTableView().getExpandedItemCount();
     }
 
     @Override
     public void clearAndSelect(int index) {
         // replace the anchor
-        TreeTableCellBehavior.setAnchor(getTreeTableView(), new TreeTablePosition<>(getTreeTableView(), index, (TreeTableColumn<E,?>)null), false);
+        TreeTableCellBehavior.setAnchor(getTreeTableView(), new TreeTablePosition<>(getTreeTableView(), index, (TreeTableColumn<E, ?>) null), false);
+        getTreeTableView().getFocusModel().focus(index);
 
         selected.clear();
         select(index);
@@ -143,10 +80,10 @@ public class SelectionModel<E> extends TreeTableView.TreeTableViewSelectionModel
 
     @Override
     public void select(int index) {
-//        super.select(index);
-        getTreeTableView().getFocusModel().focus(index);
-        logger.info("Selecting " + index);
-        selected.add(getTreeTableView().getTreeItem(index));
+        TreeItem<E> node = getTreeTableView().getTreeItem(index);
+        if(!selected.contains(node)) {
+            selected.add(node);
+        }
     }
 
     @Override
@@ -156,6 +93,7 @@ public class SelectionModel<E> extends TreeTableView.TreeTableViewSelectionModel
 
     @Override
     public void clearSelection() {
+        getTreeTableView().getFocusModel().focus(-1);
         selected.clear();
     }
 
@@ -171,12 +109,22 @@ public class SelectionModel<E> extends TreeTableView.TreeTableViewSelectionModel
 
     @Override
     public void selectPrevious() {
-        throw new UnsupportedOperationException();
+        int focusIndex = getFocusedIndex();
+        if (focusIndex == -1) {
+            select(getRowCount() - 1);
+        } else if (focusIndex > 0) {
+            select(focusIndex - 1);
+        }
     }
 
     @Override
     public void selectNext() {
-        throw new UnsupportedOperationException();
+        int focusIndex = getFocusedIndex();
+        if (focusIndex == -1) {
+            select(0);
+        } else if (focusIndex < getRowCount() - 1) {
+            select(focusIndex + 1);
+        }
     }
 
     @Override
@@ -214,6 +162,14 @@ public class SelectionModel<E> extends TreeTableView.TreeTableViewSelectionModel
         clearSelection(row);
     }
 
+    public void clearSelection(TreeItem<E>... items) {
+        selected.removeAll(items);
+    }
+
+    public void clearSelection(Collection<TreeItem<E>> items) {
+        selected.removeAll(items);
+    }
+
     @Override
     public void selectLeftCell() {
         throw new UnsupportedOperationException();
@@ -241,12 +197,12 @@ public class SelectionModel<E> extends TreeTableView.TreeTableViewSelectionModel
 
     @Override
     public ObservableList<Integer> getSelectedIndices() {
-        return super.getSelectedIndices();
+        return selectedIndices;
     }
 
     @Override
     public ObservableList<TreeItem<E>> getSelectedItems() {
-        throw new UnsupportedOperationException();
+        return selected;
     }
 
     @Override
@@ -256,7 +212,12 @@ public class SelectionModel<E> extends TreeTableView.TreeTableViewSelectionModel
 
     @Override
     public void selectIndices(int row, int... rows) {
-        throw new UnsupportedOperationException();
+        select(row);
+        getTreeTableView().getFocusModel().focus(row);
+        for (int i : rows) {
+            select(i);
+            getTreeTableView().getFocusModel().focus(i);
+        }
     }
 
     @Override
@@ -268,9 +229,9 @@ public class SelectionModel<E> extends TreeTableView.TreeTableViewSelectionModel
 
     @Override
     public void selectRange(int minRow, TableColumnBase<TreeItem<E>, ?> minColumn, int maxRow, TableColumnBase<TreeItem<E>, ?> maxColumn) {
-        logger.info("Range selection from " + minRow + " to " + maxRow);
         for (int i = Math.min(minRow, maxRow); i <= Math.max(minRow, maxRow); i++) {
             select(i);
         }
+        getTreeTableView().getFocusModel().focus(maxRow);
     }
 }
